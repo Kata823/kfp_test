@@ -1,0 +1,116 @@
+name: Classif model eval metrics
+description: "\u3053\u308C\u306F AutoML \u306E\u8868\u5F62\u5F0F\u5206\u985E\u30E2\
+  \u30C7\u30EB\u306E\u8A55\u4FA1\u6307\u6A19\u3092\u30EC\u30F3\u30C0\u30EA\u30F3\u30B0\
+  \u3059\u308B\u95A2\u6570\u3067\u3042\u308B\u3002"
+inputs:
+- {name: project, type: String}
+- {name: location, type: String}
+- {name: api_endpoint, type: String}
+- {name: thresholds_dict_str, type: String}
+- {name: model, type: Model}
+outputs:
+- {name: metrics, type: Metrics}
+- {name: metricsc, type: ClassificationMetrics}
+- {name: dep_decision, type: String}
+implementation:
+  container:
+    image: gcr.io/deeplearning-platform-release/tf2-cpu.2-3:latest
+    command:
+    - sh
+    - -c
+    - |2
+
+      if ! [ -x "$(command -v pip)" ]; then
+          python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip
+      fi
+
+      PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'google-cloud-aiplatform' 'kfp==1.8.22' && "$0" "$@"
+    - sh
+    - -ec
+    - |
+      program_path=$(mktemp -d)
+      printf "%s" "$0" > "$program_path/ephemeral_component.py"
+      python3 -m kfp.v2.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+    - "\nimport kfp\nfrom kfp.v2 import dsl\nfrom kfp.v2.dsl import *\nfrom typing\
+      \ import *\n\ndef classif_model_eval_metrics(\n    project: str,\n    location:\
+      \ str,  # \"region\",\n    api_endpoint: str,  # \"region-aiplatform.googleapis.com\"\
+      ,\n    thresholds_dict_str: str,\n    model: Input[Model],\n    metrics: Output[Metrics],\n\
+      \    metricsc: Output[ClassificationMetrics],\n) -> NamedTuple(\"Outputs\",\
+      \ [(\"dep_decision\", str)]):  # Return parameter.\n\n    \"\"\"\u3053\u308C\
+      \u306F AutoML \u306E\u8868\u5F62\u5F0F\u5206\u985E\u30E2\u30C7\u30EB\u306E\u8A55\
+      \u4FA1\u6307\u6A19\u3092\u30EC\u30F3\u30C0\u30EA\u30F3\u30B0\u3059\u308B\u95A2\
+      \u6570\u3067\u3042\u308B\u3002\n    AutoML \u306E\u8868\u5F62\u5F0F\u30C8\u30EC\
+      \u30FC\u30CB\u30F3\u30B0 \u30D7\u30ED\u30BB\u30B9\u306B\u3088\u3063\u3066\u751F\
+      \u6210\u3055\u308C\u305F\u5206\u985E\u30E2\u30C7\u30EB\u8A55\u4FA1\u3092\u53D6\
+      \u5F97\u3057\u3001\u89E3\u6790\u4F5C\u696D\u3092\u884C\u3063\u3066\u3001\u305D\
+      \u306E\u60C5\u5831\u3092\u5143\u306B\u30E2\u30C7\u30EB\u306E ROC \u66F2\u7DDA\
+      \u3068\u6DF7\u540C\u884C\u5217\u3092\u30EC\u30F3\u30C0\u30EA\u30F3\u30B0\u3059\
+      \u308B\u3002\u307E\u305F\u4E0E\u3048\u3089\u308C\u305F\u6307\u6A19\u306E\u3057\
+      \u304D\u3044\u5024\u60C5\u5831\u3092\u7528\u3044\u3066\u3001\u8A55\u4FA1\u7D50\
+      \u679C\u3068\u6BD4\u8F03\u3092\u884C\u3044\u3001\u30E2\u30C7\u30EB\u306E\u7CBE\
+      \u5EA6\u304C\u30C7\u30D7\u30ED\u30A4\u3059\u308B\u306E\u306B\u5341\u5206\u304B\
+      \u3069\u3046\u304B\u3092\u5224\u65AD\u3059\u308B\u3002\n    \"\"\"\n    import\
+      \ json\n    import logging\n\n    from google.cloud import aiplatform\n\n  \
+      \  # \u30E2\u30C7\u30EB\u306E\u8A55\u4FA1\u60C5\u5831\u3092\u30D5\u30A7\u30C3\
+      \u30C1\n    def get_eval_info(client, model_name):\n        from google.protobuf.json_format\
+      \ import MessageToDict\n\n        response = client.list_model_evaluations(parent=model_name)\n\
+      \        metrics_list = []\n        metrics_string_list = []\n        for evaluation\
+      \ in response:\n            print(\"model_evaluation\")\n            print(\"\
+      \ name:\", evaluation.name)\n            print(\" metrics_schema_uri:\", evaluation.metrics_schema_uri)\n\
+      \            metrics = MessageToDict(evaluation._pb.metrics)\n            for\
+      \ metric in metrics.keys():\n                logging.info(\"metric: %s, value:\
+      \ %s\", metric, metrics[metric])\n            metrics_str = json.dumps(metrics)\n\
+      \            metrics_list.append(metrics)\n            metrics_string_list.append(metrics_str)\n\
+      \n        return (\n            evaluation.name,\n            metrics_list,\n\
+      \            metrics_string_list,\n        )\n\n    # \u4E0E\u3048\u3089\u308C\
+      \u305F\u6307\u6A19\u306E\u3057\u304D\u3044\u5024\u3092\u7528\u3044\u3066\u30E2\
+      \u30C7\u30EB\u306E\u7CBE\u5EA6\u304C\u30C7\u30D7\u30ED\u30A4\u3059\u308B\u306E\
+      \u306B\n    # \u5341\u5206\u304B\u3069\u3046\u304B\u3092\u5224\u65AD\u3002\n\
+      \    def classification_thresholds_check(metrics_dict, thresholds_dict):\n \
+      \       for k, v in thresholds_dict.items():\n            logging.info(\"k {},\
+      \ v {}\".format(k, v))\n            if k in [\"auRoc\", \"auPrc\"]:  # \u3088\
+      \u308A\u9AD8\u3044\u65B9\u304C\u826F\u3044\n                if metrics_dict[k]\
+      \ < v:  # \u3057\u304D\u3044\u5024\u3092\u4E0B\u56DE\u308B\u5834\u5408\u306F\
+      \u30C7\u30D7\u30ED\u30A4\u3057\u306A\u3044\n                    logging.info(\n\
+      \                        \"{} < {}; returning False\".format(metrics_dict[k],\
+      \ v)\n                    )\n                    return False\n        logging.info(\"\
+      threshold checks passed.\")\n        return True\n\n    def log_metrics(metrics_list,\
+      \ metricsc):\n        test_confusion_matrix = metrics_list[0][\"confusionMatrix\"\
+      ]\n        logging.info(\"rows: %s\", test_confusion_matrix[\"rows\"])\n\n \
+      \       # ROC \u66F2\u7DDA\u3092\u30ED\u30AE\u30F3\u30B0\n        fpr = []\n\
+      \        tpr = []\n        thresholds = []\n        for item in metrics_list[0][\"\
+      confidenceMetrics\"]:\n            fpr.append(item.get(\"falsePositiveRate\"\
+      , 0.0))\n            tpr.append(item.get(\"recall\", 0.0))\n            thresholds.append(item.get(\"\
+      confidenceThreshold\", 0.0))\n        print(f\"fpr: {fpr}\")\n        print(f\"\
+      tpr: {tpr}\")\n        print(f\"thresholds: {thresholds}\")\n        metricsc.log_roc_curve(fpr,\
+      \ tpr, thresholds)\n\n        # \u6DF7\u540C\u884C\u5217\u3092\u30ED\u30AE\u30F3\
+      \u30B0\n        annotations = []\n        for item in test_confusion_matrix[\"\
+      annotationSpecs\"]:\n            annotations.append(item[\"displayName\"])\n\
+      \        logging.info(\"confusion matrix annotations: %s\", annotations)\n \
+      \       metricsc.log_confusion_matrix(\n            annotations,\n         \
+      \   test_confusion_matrix[\"rows\"],\n        )\n\n        # \u30C6\u30AD\u30B9\
+      \u30C8\u306E\u6307\u6A19\u60C5\u5831\u3082\u30ED\u30AE\u30F3\u30B0\n       \
+      \ for metric in metrics_list[0].keys():\n            if metric != \"confidenceMetrics\"\
+      :\n                val_string = json.dumps(metrics_list[0][metric])\n      \
+      \          metrics.log_metric(metric, val_string)\n        # metrics.metadata[\"\
+      model_type\"] = \"AutoML Tabular classification\"\n\n    logging.getLogger().setLevel(logging.INFO)\n\
+      \    aiplatform.init(project=project, location=location)\n    # \u30E2\u30C7\
+      \u30EB\u306E\u30EA\u30BD\u30FC\u30B9\u540D\u3092\u5165\u529B Model Artifact\
+      \ \u304B\u3089\u62BD\u51FA\n    model_resource_path = model.uri.replace(\"aiplatform://v1/\"\
+      , \"\")\n    logging.info(\"model path: %s\", model_resource_path)\n\n    client_options\
+      \ = {\"api_endpoint\": api_endpoint}\n    # \u30EA\u30AF\u30A8\u30B9\u30C8\u306E\
+      \u4F5C\u6210\u3068\u9001\u4FE1\u306B\u4F7F\u3046\u30AF\u30E9\u30A4\u30A2\u30F3\
+      \u30C8\u3092\u521D\u671F\u5316\u3059\u308B\u3002\n    client = aiplatform.gapic.ModelServiceClient(client_options=client_options)\n\
+      \    eval_name, metrics_list, metrics_str_list = get_eval_info(\n        client,\
+      \ model_resource_path\n    )\n    logging.info(\"got evaluation name: %s\",\
+      \ eval_name)\n    logging.info(\"got metrics list: %s\", metrics_list)\n   \
+      \ log_metrics(metrics_list, metricsc)\n\n    thresholds_dict = json.loads(thresholds_dict_str)\n\
+      \    deploy = classification_thresholds_check(metrics_list[0], thresholds_dict)\n\
+      \    if deploy:\n        dep_decision = \"true\"\n    else:\n        dep_decision\
+      \ = \"false\"\n    logging.info(\"deployment decision is %s\", dep_decision)\n\
+      \n    return (dep_decision,)\n\n"
+    args:
+    - --executor_input
+    - {executorInput: null}
+    - --function_to_execute
+    - classif_model_eval_metrics
